@@ -224,12 +224,16 @@ class Listener(threading.Thread):
 
     def run(self):
         try:
+            import importlib.util
+
+            from ..portable import find_exe
+
             engine = WhisperCpp if self.cfg["stt"].get("engine") == "whisper_cpp" else Transcriber
             if engine is Transcriber:
-                import importlib.util
-
                 if importlib.util.find_spec("faster_whisper") is None:  # start.bat's Python: whisper.cpp instead
                     engine = WhisperCpp
+            elif find_exe("whisper-server") is None and importlib.util.find_spec("faster_whisper") is not None:
+                engine = Transcriber  # no whisper.cpp package (Kali / Debian): faster-whisper from pip instead
             self.stt = engine(self.cfg)
         except Exception as e:
             print(f"[capri] ears failed to load: {e}")

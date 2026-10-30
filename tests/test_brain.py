@@ -282,11 +282,6 @@ def test_short_first_sentence_still_cuts_the_warning():
     assert ag._stream([], shown.append) == "Nova track!"
 
 
-def test_idea_intent():
-    assert intents.detect("capri note this idea: let chat vote on her outfit") == intents.Intent("idea", "let chat vote on her outfit")
-    assert intents.detect("add this to the ideas board, a boss fight mode") == intents.Intent("idea", "a boss fight mode")
-
-
 def task(t):
     i = intents.detect_task(t)
     return (i.kind, i.arg) if i else None

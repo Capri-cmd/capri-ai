@@ -7,6 +7,7 @@ import random
 import re
 import sys
 import threading
+from pathlib import Path
 import time
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
@@ -30,6 +31,7 @@ class Bridge(QObject):
     heard = Signal(str)
     hearing = Signal(bool)
     level = Signal(float)
+    fetched = Signal(object)  # a download finished: run this on the Qt thread
 
 
 def idle_seconds() -> float:
@@ -76,12 +78,8 @@ class DeskApp:
         self.s = Settings(self.cfg)
         self.bridge = Bridge()
         size = int(d["video_size"] if video else (self.s["size"] or d["size"]))  # bigger for the camera
-        # stream mode only when stream.bat starts her (--stream): the normal launch is always her desktop self.
-        # On the stream, her CMD boots her on the Capri Stage instead of the desktop.
         self.dev = self.cfg.get("edition") == "dev"  # the portable test build for other devs
-        self.streaming = "--stream" in sys.argv and not self.dev
-        self.capri = Capri(size, tuple(d["roam_seconds"]), intro=bool(d["intro"]) and not video and not self.streaming,
-                           start=not video)
+        self.capri = Capri(size, tuple(d["roam_seconds"]), intro=bool(d["intro"]) and not video, start=not video)
         self.capri.voice = self.voice
         self.capri.greeting = lambda: None if self.capri.blips else tts_mod.greeting()  # her recorded hello
         self.capri.blips = True  # until her voice is picked below
@@ -98,6 +96,9 @@ class DeskApp:
         b.ended.connect(self._ended)
         b.heard.connect(self.capri.heard)
         b.hearing.connect(self._hearing)
+        b.fetched.connect(lambda then: then())
+        self.dl = None  # what's downloading right now, shown at the top of her Brain menu ("Getting X: 40%")
+        self.dl_action = None
         b.level.connect(lambda v: setattr(self.capri.bubble, "mic_level", v))
         self.agent = None
         self.busy = threading.Lock()
@@ -110,14 +111,7 @@ class DeskApp:
         threading.Thread(target=self._boot, daemon=True).start()
         self._start_ears()
         QTimer.singleShot(5000, self._start_beat)  # after boot: starting it mid-startup raced numpy imports and crashed
-        self.stream = None
-        if not self.dev:
-            from .stream import Stream
-
-            self.stream = Stream(self)
         self._build_menu()
-        if self.streaming:
-            QTimer.singleShot(600, lambda: self.stream.set(True))
         # what she keeps an eye on
         self.title = ""
         self.last_own = time.monotonic()  # last time she said something unprompted
@@ -149,8 +143,7 @@ class DeskApp:
         from ..brain.agent import Agent
 
         t = time.monotonic()
-        # picked from her Brain menu, one for talking with you and one for streams (where speed matters more)
-        brain = (self.s["stream_brain"] if self.streaming else "") or self.s["brain"]
+        brain = self.s["brain"]  # picked from her Brain menu
         if brain:
             self.cfg["llm"]["model_path"] = brain
         self.agent = Agent(self.cfg)
@@ -172,14 +165,17 @@ class DeskApp:
         except Exception as e:
             print(f"[capri] warm-up failed: {e}")
         print(f"[capri] brain online in {time.monotonic() - t:.1f}s")
+        if (self.cfg["llm"].get("model_path") or "").lower() == "none" and not self.s["my_brains"]:
+            from .. import portable
+
+            if not portable.brains():  # first run: point at where her brain comes from
+                self.bridge.replied.emit("No brain chip in me yet. Right-click me, Brain, and pick one to download.",
+                                         "", False)
         sight_dir = None if self.dev else self.cfg.get("sight", {}).get("model_dir")
         if getattr(self.agent.llm, "vision", False):  # her brain came with eyes (an mmproj): no second model needed
             from ..abilities.sight import BrainEyes
 
             self.agent.eyes = BrainEyes(self.agent.llm)
-            sight_dir = None
-        if sight_dir and self.streaming:  # streaming: TikTok LIVE Studio and VTube Studio need that GPU memory
-            print("[capri] stream mode: her eyes (InternVL) stay off to save ~2.6 GB of GPU memory")
             sight_dir = None
         if sight_dir:  # her real eyes load after the brain, so they only take what VRAM is left
             from ..abilities.sight import Eyes
@@ -235,7 +231,7 @@ class DeskApp:
             backend = "blips"
         if backend == "kokoro" and not tts_mod.KokoroTTS.installed(tts_mod.kokoro_dir(self.cfg)):
             if not quiet:
-                self.capri.say("My voice isn't downloaded yet. Open setup from my Brain menu to get it.")
+                self._get_voice()
             backend = "blips"
         cfg = dict(self.cfg, tts=dict(self.cfg["tts"], backend=backend))
         self.tts = tts_mod.create(cfg) if backend != "blips" else tts_mod.NoTTS()
@@ -600,10 +596,18 @@ class DeskApp:
         m.insertSeparator(before)
 
     def _fill_brains(self, menu):
-        """Every .gguf in ERU AI's models/llm folder; picking one swaps her brain live (a few seconds)."""
+        """Every .gguf in ERU AI's models/llm folder; picking one swaps her brain live (a few seconds). Brains she
+        doesn't have yet are right there too: picking one downloads it (and her brain engine if it's missing)."""
         import glob
 
+        from .. import portable
+
         menu.clear()
+        self.dl_action = None
+        if self.dl:
+            self.dl_action = menu.addAction(self.dl)
+            self.dl_action.setEnabled(False)
+            menu.addSeparator()
         mp = self.cfg["llm"].get("model_path") or ""
         cur = os.path.normcase(os.path.abspath(mp)) if mp != "none" else "none"
         off = menu.addAction("No AI  (just her: apps, timers, music... no chatting)")
@@ -612,8 +616,6 @@ class DeskApp:
         off.triggered.connect(lambda _=False: self._swap_brain("none"))
         menu.addSeparator()
         if self.dev:
-            from .. import portable
-
             paths = [str(p) for p in portable.brains()]
         else:
             root = os.path.join(self.cfg["eru_ai_root"], "models", "llm")
@@ -632,14 +634,19 @@ class DeskApp:
             a.setCheckable(True)
             a.setChecked(os.path.normcase(os.path.abspath(path)) == cur)
             a.triggered.connect(lambda _=False, p=path: self._swap_brain(p))
+        have = {os.path.basename(p).lower() for p in paths}  # already on this PC somewhere else: no "Get" for it
+        missing = [it for it in portable.BRAINS if not it.installed() and Path(it.files[0][1]).name.lower() not in have]
+        if missing:
+            menu.addSeparator()
+            for it in missing:
+                a = menu.addAction(f"Get {it.label.split('  (')[0]}, {portable.gb(it.size)}")
+                a.setToolTip(it.note)
+                a.setEnabled(self.dl is None)
+                a.triggered.connect(lambda _=False, i=it: self._get_brain(i))
         menu.addSeparator()
         menu.addAction("Use a model from my PC...  (.gguf)", self._pick_brain)
-        if self.dev:
-            from .. import portable
-
-            menu.addAction("Add your own model...  (drop a .gguf in this folder)",
-                           lambda: (portable.LLM_DIR.mkdir(parents=True, exist_ok=True), _open_folder(portable.LLM_DIR)))
-            menu.addAction("Download more models / ears...", self._open_setup)
+        menu.addAction("Open my models folder",
+                       lambda: (portable.LLM_DIR.mkdir(parents=True, exist_ok=True), _open_folder(portable.LLM_DIR)))
 
     def _fill_ear_models(self):
         from .. import portable
@@ -652,6 +659,14 @@ class DeskApp:
             a.setCheckable(True)
             a.setChecked(path.name == cur or (not cur and "small" in path.name))
             a.triggered.connect(lambda _=False, n=path.name: self._swap_ears(n))
+        missing = [it for it in portable.EARS if not it.installed()]
+        if missing:
+            menu.addSeparator()
+            for it in missing:
+                a = menu.addAction(f"Get {it.label} ears, {portable.gb(it.size)}")
+                a.setToolTip(it.note)
+                a.setEnabled(self.dl is None)
+                a.triggered.connect(lambda _=False, i=it: self._get_ears(i))
 
     def _swap_ears(self, name: str):
         """A different whisper model: saved, and her ears restart with it."""
@@ -664,12 +679,87 @@ class DeskApp:
                 stt.close()
         QTimer.singleShot(1500, self._start_ears)
 
-    def _open_setup(self):
-        """The download window again (her Brain menu), to add models; she keeps running meanwhile."""
-        from ..setup import SetupWindow
+    # -- downloads, straight from her menu (no setup window) ---------------------------------------
+    def _fetch(self, items, what: str, then=None):
+        """Download in the background. The progress shows at the top of her Brain menu; she says when it's done,
+        then `then()` runs (on the Qt thread)."""
+        from .. import portable
 
-        self._setup = SetupWindow(first_run=False)
-        self._setup.show()
+        if self.dl:
+            self.capri.say("One download at a time, choom. I'm still pulling the last one.")
+            return
+        items = [it for it in items if not it.installed()]
+        if not items:
+            if then:
+                then()
+            return
+        self.dl = f"Getting {what}..."
+        self.capri.say(f"Pulling {what} now ({portable.gb(sum(it.size for it in items))}). "
+                       "Right-click me, Brain, to see how far along it is.")
+        self._dl_timer = timer = QTimer()
+        timer.timeout.connect(lambda: self.dl_action is not None and self.dl and self.dl_action.setText(self.dl))
+        timer.start(500)
+
+        def progress(done, total, _what):
+            self.dl = f"Getting {what}: {100 * done // max(1, total)}%"
+
+        def work():
+            try:
+                portable.download(items, progress)
+                line, ok = f"Got {what}. Hooking it up now.", True
+            except Exception as e:
+                print(f"[capri] download failed: {e}")
+                line, ok = f"Couldn't get {what}: {e}. Try again from my Brain menu.", False
+            self.dl = None
+
+            def done():
+                timer.stop()
+                self.capri.say(line)
+                if ok and then:
+                    then()
+            self.bridge.fetched.emit(done)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _engine(self):
+        """Her brain engine (llama.cpp) if it isn't there yet: CUDA on NVIDIA, Vulkan on anything else."""
+        from .. import portable
+
+        if portable.find_exe("llama-server") is not None:
+            return []
+        want = "cuda" if portable.has_nvidia() else "vulkan"
+        return [next(it for it in portable.ENGINE_GPU if it.key == want)]
+
+    def _get_brain(self, item):
+        from ..config import ROOT
+
+        path = str(ROOT / item.files[0][1])
+        self._fetch(self._engine() + [item], item.label.split("  (")[0], then=lambda: self._swap_brain(path))
+
+    def _get_ears(self, item):
+        from .. import portable
+
+        extra = []
+        if not portable.ENGINE_EARS.installed():
+            if portable.ENGINE_EARS.system:  # Linux: the package manager has it
+                self.capri.say("My ears need whisper.cpp first: sudo pacman -S whisper-cpp on Arch. "
+                               "On Kali, kali/run.sh already gave me faster-whisper.")
+                return
+            extra = [portable.ENGINE_EARS]
+        name = Path(item.files[0][1]).name
+
+        def ready():
+            if self.s["ears"] == "off":
+                self.s.set("ears", "hold")
+            self._swap_ears(name)
+        self._fetch(extra + [item], f"the {item.label} ears", then=ready)
+
+    def _get_voice(self):
+        """Her voice files: the clone's helper data if her clone ships here, else the free Kokoro pack."""
+        from .. import portable
+
+        item = portable.VOICE if tts_mod.CloneTTS.folder().exists() else portable.KOKORO
+        self._fetch([item], "my voice", then=lambda: self._set_voice(True))
 
     def _pick_brain(self):
         """Any .gguf already on this PC (LM Studio's, one you downloaded...): no copy, she just loads it from there."""
@@ -687,7 +777,7 @@ class DeskApp:
     def _swap_brain(self, path: str):
         if self.agent is None or os.path.normcase(path) == os.path.normcase(self.cfg["llm"].get("model_path") or ""):
             return
-        self.s.set("stream_brain" if self.streaming else "brain", path)
+        self.s.set("brain", path)
         self.capri.say("Hold up, swapping out my brain chip. Don't look.")
 
         def work():
@@ -800,17 +890,9 @@ def main():
     import argparse
 
     ap = argparse.ArgumentParser(prog="capri")
-    ap.add_argument("--video", action="store_true", help="play and record the scripted video (video.txt)")
-    ap.add_argument("--autostart", action="store_true", help="video: start recording as soon as it's ready, quit when done")
-    ap.add_argument("--script", help="video: which script to play (default video.txt)")
-    ap.add_argument("--stream", action="store_true", help="stream mode for this run: Capri Stage for TikTok LIVE")
-    args = ap.parse_args()
+    ap.parse_args()
     QGuiApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
-    desk = DeskApp(video=args.video)
-    if args.video:
-        from .video import Video
-
-        desk.video = Video(desk, autostart=args.autostart, script=args.script)
+    app.desk = DeskApp()  # kept alive with the app
     sys.exit(app.exec())

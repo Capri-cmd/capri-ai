@@ -4,7 +4,7 @@ eyes (and, on Arch, the system packages), then one download with a progress bar.
     python -m capri.setup_cli            only asks when something she needs is missing (first run)
     python -m capri.setup_cli --setup    asks everything again
 
-Exit code: 0 = start her, 2 = you chose to quit. With no terminal attached it does nothing (the setup window takes over).
+Exit code: 0 = start her, 2 = you chose to quit. With no terminal attached it does nothing (her menu has the downloads).
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ PACMAN_NEED = ["python", "portaudio", "xcb-util-cursor", "vulkan-icd-loader"]
 PACMAN_EARS = ["whisper-cpp"]
 PACMAN_EYES = ["tesseract", "tesseract-data-eng", "spectacle"]
 PACMAN_MUSIC = ["playerctl"]
-AGAIN = "bash run.sh --setup" if LINUX else ("run.bat" if (ROOT / "run.bat").exists() else "start.bat") + " --setup"
+AGAIN = (("bash arch/run.sh" if shutil.which("pacman") else "bash kali/run.sh") if LINUX else r"windows\start.bat") + " --setup"
 
 
 def say(text: str = "", color: str = "") -> None:
@@ -229,7 +229,7 @@ def run(force: bool) -> int:
 def main() -> int:
     force = "--setup" in sys.argv
     if not sys.stdin or not sys.stdin.isatty():
-        return 0  # no terminal: the setup window takes over
+        return 0  # no terminal: her menu has the downloads
     if not force and not portable.needs_setup():
         return 0
     try:

@@ -7,6 +7,7 @@ colours, mood), any words in it, and whether it's fan art of her (her spiky hot-
 from __future__ import annotations
 
 import re
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -178,6 +179,10 @@ class BrainEyes:
 
 def screenshot_front(skip_titles=("Capri",)):
     """The window in front of you, as a PIL image (the whole screen if that window can't be found). Never saved."""
+    if sys.platform.startswith("linux"):
+        from .. import linux
+
+        return linux.grab_active() or linux.grab_screen()
     from PIL import ImageGrab
 
     from . import vision

@@ -326,7 +326,7 @@ def ears_models() -> list[Path]:
 
 
 def needs_setup() -> bool:
-    """The setup window first? Not when a brain was picked (downloaded, your own .gguf anywhere, or "none")."""
+    """Nothing to think with yet? Not when a brain was picked (downloaded, your own .gguf anywhere, or "none")."""
     import json
 
     from .config import DATA

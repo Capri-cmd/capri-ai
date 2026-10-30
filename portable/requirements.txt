@@ -15,6 +15,7 @@ pytest
 # her cloned voice (Genie-TTS runs it on the CPU; genie-tts itself goes in with --no-deps: its Chinese extra
 # jieba_fast won't build on Windows without a compiler, and she only speaks English)
 onnxruntime==1.22.1
+onnx
 tokenizers
 soxr
 pydantic

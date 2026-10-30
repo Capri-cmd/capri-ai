@@ -1,4 +1,4 @@
-"""Her nap form ("dormant mode"): a tiny mint glitch-sprite with one curly pink strand of her hair for an
+"""Her mini form (her naps, and "Go mini" from the menu): a tiny mint glitch-sprite with one curly pink strand of her hair for an
 antenna, sleepy eyes, a violet misprint shadow and a little hover flame. It floats in the bottom-left corner;
 drag it anywhere, click it to wake her up.
 """
@@ -179,6 +179,7 @@ class Chip(QWidget):
 
     woke = Signal()
     moved = Signal()
+    menu = Signal()  # right-clicked: her menu opens in the door beside it
 
     def __init__(self, scale: float):
         super().__init__(None, Qt.FramelessWindowHint | Qt.Tool | Qt.WindowStaysOnTopHint | Qt.NoDropShadowWindowHint)
@@ -190,6 +191,7 @@ class Chip(QWidget):
         self.glitch_until = 0.0
         self.press = None
         self.dragged = False
+        self.zs = True  # the sleepy z's (off in mini mode, where she's awake, just small)
 
     def floor_point(self) -> QPointF:
         return QPointF(self.x() + self.side * 0.5, self.y() + self.side * 0.92)
@@ -206,7 +208,7 @@ class Chip(QWidget):
     def paintEvent(self, _):
         p = QPainter(self)
         now = time.monotonic()
-        paint_chip(p, self.side, now - self.t0, glitch=now < self.glitch_until)
+        paint_chip(p, self.side, now - self.t0, glitch=now < self.glitch_until, zs=self.zs)
         p.end()
 
     def mousePressEvent(self, e):
@@ -229,3 +231,6 @@ class Chip(QWidget):
             self.moved.emit()
         else:
             self.woke.emit()
+
+    def contextMenuEvent(self, e):
+        self.menu.emit()

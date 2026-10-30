@@ -216,11 +216,20 @@ else:
         r = _showing(hwnd)
         return to_logical(*r) if r else None
 
+    _ME = kernel32.GetCurrentProcessId()
+
+    def _mine(hwnd) -> bool:
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        return pid.value == _ME
+
     def _windows(skip):
         found = []
 
         def visit(hwnd, _):
-            if hwnd not in skip:
+            # never her own windows (her menu's door, the chat box, effects...): sitting on them, or having one
+            # cover her seat, dropped her off whatever she was on
+            if hwnd not in skip and not _mine(hwnd):
                 r = _showing(hwnd)
                 if r:
                     rect = to_logical(*r)

@@ -185,7 +185,7 @@ class Bubble(QWidget):
         self.send_btn = IconButton(self, lambda p, x, y, z, col, bg: icon_send(p, x, y, z, col), "Send")
         self.send_btn.clicked.connect(self._send)
         self.send_btn.hide()
-        self.nap_btn = IconButton(self, icon_moon, "Go dormant (nap)")
+        self.nap_btn = IconButton(self, icon_moon, "Go mini")
         self.nap_btn.clicked.connect(lambda: (self.close_bubble(), self.nap.emit()))
         self.nap_btn.hide()
         self.edit.installEventFilter(self)

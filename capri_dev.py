@@ -1,5 +1,5 @@
-"""Capri, the portable dev build (Capri.exe): the setup window on the first run (pick and download her brains, ears
-and engine), then her. Built with build_dev.bat."""
+"""Capri, the portable dev build (Capri.exe): starts her straight away. Brains, ears and her voice download from her
+right-click menu (Brain / Ears / Her voice), no setup window."""
 import os
 import sys
 import time
@@ -110,14 +110,13 @@ def main():
 
         keep["desk"] = DeskApp()
 
-    if portable.needs_setup() or "--setup" in sys.argv:
-        from capri.setup import SetupWindow
+    if portable.needs_setup():  # no setup window: she starts brainless, and her Brain menu gets her one
+        from capri.config import load
+        from capri.desk.settings import Settings
 
-        keep["setup"] = w = SetupWindow(first_run=True)
-        w.done.connect(start)
-        w.show()
-    else:
-        start()
+        have = portable.brains()
+        Settings(load()).set("brain", str(have[0]) if have and portable.find_exe("llama-server") else "none")
+    start()
     code = app.exec()
     sys.stdout.flush()
     os._exit(code)

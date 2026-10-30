@@ -60,6 +60,10 @@ def youtube_song(titles: list[str]) -> str:
 
 def foreground_rect() -> tuple[int, int, int, int] | None:
     if sys.platform != "win32":
+        if sys.platform.startswith("linux"):
+            from .. import linux
+
+            return linux.active_box()
         return None
     import ctypes
     import ctypes.wintypes as wt

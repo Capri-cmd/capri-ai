@@ -9,6 +9,7 @@ from __future__ import annotations
 import threading
 import time
 import zlib
+from pathlib import Path
 
 import numpy as np
 
@@ -140,7 +141,26 @@ def synth(name: str, arg: str = "") -> np.ndarray:
     if name == "snore":  # tiny "zz" puff while she naps
         s = _sweep(300, 240, 0.35, "tri") * np.sin(np.pi * _t(0.35) / 0.35) * 0.08
         return s
+    wav = WAVS / f"{name}.wav"
+    if wav.exists():
+        return _load_wav(wav)
     return np.zeros(1)
+
+
+# designed sounds that live as files (made by tools/make_door_sfx.py): the door her menu opens in
+WAVS = Path(__file__).resolve().parents[2] / "assets" / "desk" / "door" / "sfx"
+
+
+def _load_wav(path: Path) -> np.ndarray:
+    """Mono at SR, whatever the file's rate and channels."""
+    import soundfile as sf
+
+    x, sr = sf.read(str(path), dtype="float32", always_2d=True)
+    x = x.mean(axis=1)
+    if sr != SR:
+        n = round(len(x) * SR / sr)
+        x = np.interp(np.arange(n) * sr / SR, np.arange(len(x)), x).astype(np.float32)
+    return x
 
 
 _cache: dict[tuple, np.ndarray] = {}
@@ -148,7 +168,8 @@ _cache: dict[tuple, np.ndarray] = {}
 # peak level per sound, so a coin isn't drowned out by the boom
 LEVEL = {"boom": 0.75, "thud": 0.5, "crtoff": 0.45, "bloop": 0.35, "coin": 0.38, "stream": 0.35, "charge": 0.3,
          "wake": 0.35, "sleep": 0.32, "rebuild": 0.3, "blip": 0.2, "pop": 0.22, "grab": 0.25, "throw": 0.25,
-         "tinkle": 0.16, "fall": 0.22, "tear": 0.3, "snore": 0.08, "key": 0.07}
+         "tinkle": 0.16, "fall": 0.22, "tear": 0.3, "snore": 0.08, "key": 0.07,
+         "door_open": 0.4, "door_close": 0.36}
 
 
 def sound(name: str, arg: str = "") -> np.ndarray:

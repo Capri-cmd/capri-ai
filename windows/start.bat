@@ -1,10 +1,10 @@
 @echo off
-rem Capri, from source. First run: makes a Python environment in .venv and installs the packages
-rem (PySide6, numpy, sound, OCR; no torch). Then setup asks, right here in this window, what she gets:
-rem brain, ears, voice, eyes (y/n), and downloads it.
-rem   start.bat           start her (setup the first time)
-rem   start.bat --setup   run setup again
-cd /d "%~dp0"
+rem Capri on Windows, from source. First run: makes a Python environment in .venv and installs the packages
+rem (PySide6, numpy, sound, OCR; no torch). Then she starts; her brain, ears and voice download from her
+rem right-click menu.
+rem   start.bat           start her
+rem   start.bat --setup   pick and download everything in this window instead
+cd /d "%~dp0.."
 rem .venv\installed.txt is written only once every package is in (a closed or failed install resumes next time)
 if exist .venv\installed.txt goto run
 if exist .venv\Scripts\python.exe goto install
@@ -22,10 +22,10 @@ rem her cloned voice; --no-deps: its Chinese extra won't build without a compile
 .venv\Scripts\python.exe -m pip install --no-deps genie-tts==2.0.2 || goto fail
 echo ok> .venv\installed.txt
 :run
-.venv\Scripts\python.exe -m capri.setup_cli %*
-if errorlevel 2 (
-  pause
-  goto :eof
+rem her brain, ears and voice download from her right-click menu; start.bat --setup still asks in this window
+if /i "%1"=="--setup" (
+  .venv\Scripts\python.exe -m capri.setup_cli --setup
+  if errorlevel 2 goto :eof
 )
 start "" .venv\Scripts\pythonw.exe capri_dev.py
 goto :eof

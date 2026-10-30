@@ -50,7 +50,15 @@ def screenshot() -> Path:
     folder = Path.home() / "Pictures" / "Capri"
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / datetime.now().strftime("Screenshot %Y-%m-%d %H.%M.%S.png")
-    ImageGrab.grab(all_screens=True).save(path)
+    if sys.platform.startswith("linux"):
+        from .. import linux
+
+        img = linux.grab_screen()
+        if img is None:
+            raise RuntimeError("no screenshot tool")
+        img.save(path)
+    else:
+        ImageGrab.grab(all_screens=True).save(path)
     return path
 
 

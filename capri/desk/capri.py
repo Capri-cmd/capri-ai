@@ -20,6 +20,7 @@ from . import ledges
 from .bubble import Bubble
 from . import sfx as sfx_mod
 from .fx import CYAN, PINK, WHITE, Fx, FxLayer
+from .doormenu import INSIDE, DoorMenu
 from .mini import Chip, sample_chip
 from .portal import BOOT as SCREEN_BOOT, FACE as SCREEN_FACE, OUT as SCREEN_OFF, STAMP as SCREEN_STAMP, Portal
 from .sprites import Sprites
@@ -84,7 +85,7 @@ class Body(QWidget):
             self.ctl.teleport()
 
     def contextMenuEvent(self, e):
-        self.ctl.menu.popup(e.globalPos())
+        self.ctl.open_menu()
 
 
 class Capri:
@@ -104,12 +105,16 @@ class Capri:
         self.bubble = Bubble(self.k)
         self.bubble.sent.connect(self.heard)
         self.bubble.typed.connect(self._typed)
-        self.bubble.nap.connect(self.toggle_nap)
+        self.bubble.nap.connect(self.toggle_mini)
         self.bubble.portrait = self._portrait  # the chat box shows her live face, like a video call
         self._faces: dict = {}
         self.chip = Chip(self.k)
         self.chip.woke.connect(lambda: self.wake_chip())
         self.chip.moved.connect(self._chip_moved)
+        self.chip.menu.connect(self.open_menu)
+        self.mini = False  # True = she went mini on purpose (stays small, no snoring, no waking up by herself)
+        self.chip_home = None  # where the chip was before her menu pulled it beside the door
+        self.door = DoorMenu(self.k, self.sfx)
         self.chip_pos = None  # where the chip naps; None = bottom-left corner
         self.blips = False  # the app turns this on when she "talks" in blips instead of a voice
         self.blip_n = 0
@@ -666,14 +671,27 @@ class Capri:
                     continue
                 if self.y - 2 <= L.y <= ny + 1 and L.holds(nx) and (best is None or L.y < best.y):
                     best = L
+            floor = self._floor_under(nx, self.y)
+            if best is None and ny >= floor.y:  # already under every ledge (dragged below the taskbar...): the floor
+                best = floor
             if best is not None:
-                self.x, self.y = nx, best.y
+                self.x, self.y = (nx if best.holds(nx) else max(best.left + 8, min(best.right - 8, nx))), best.y
                 self.land(best, self.vy)
                 return
         self.x, self.y = nx, ny
         if self.vy > 0 and random.random() < 0.25:
             cx, cy = self.center()
             self.fx.embers(cx, cy, 1, radius=40)
+
+    def _floor_under(self, x, y) -> ledges.Ledge:
+        """The floor (bottom of a screen's work area) she'd hit falling from (x, y): the nearest one below her on a
+        screen under x, else the lowest one there, else the closest screen's (she's off to the side of them all)."""
+        fl = ledges.floors()
+        under = [f for f in fl if f.holds(x)]
+        if not under:
+            return min(fl, key=lambda f: min(abs(x - f.left), abs(x - f.right)))
+        below = [f for f in under if f.y >= y - 2]
+        return min(below, key=lambda f: f.y) if below else max(under, key=lambda f: f.y)
 
     def land(self, L: ledges.Ledge, speed: float):
         self.intro_only_floor = False
@@ -948,6 +966,8 @@ class Capri:
 
     def _chip_step(self):
         self.chip.tick()
+        if self.mini or self.door.active:
+            return
         if self.now > self.snore_at:
             self.sfx.play("snore")
             self.snore_at = self.now + 4.5
@@ -958,6 +978,7 @@ class Capri:
         """Out of the chip: her pixels stream out and rebuild her (next to the chip unless told where)."""
         if self.mode != "chip":
             return
+        self.mini = False
         fp = self.chip.floor_point()
         if spot is None:
             g = ledges.work_area(QGuiApplication.screenAt(fp.toPoint()) or QGuiApplication.primaryScreen())
@@ -1199,13 +1220,58 @@ class Capri:
         self.talk_open = False
 
     def nap(self):
+        """A nap she takes herself (the brain decides): snores, and wakes up again after a while."""
+        self.mini = False
+        self.chip.zs = True
         self.go_chip()
 
-    def toggle_nap(self):
+    def toggle_mini(self):
         if self.mode == "chip":
             self.wake_chip()
-        else:
+        elif self.mode in ("stand", "perch", "hidden"):
+            self.mini = True
+            self.chip.zs = False
             self.go_chip()
+
+    # -- her menu, drawn inside a glitchy door that opens beside her (beside the chip in mini mode) -------
+    def open_menu(self):
+        D = self.door
+        if D.active or self.mode not in ("stand", "perch", "sleep", "chip", "appear"):
+            return
+        w, h = D.size_for(self.menu)
+        self.next_roam = max(self.next_roam, self.now + 30)
+        self.press_at = None  # a left press the menu swallowed must not turn into a drag once it closes
+        if self.mode == "chip":
+            fp = self.chip.floor_point()
+            side = self.chip.side
+            g = ledges.work_area(QGuiApplication.screenAt(fp.toPoint()) or QGuiApplication.primaryScreen())
+            gap = 0.15 * side
+            pad = side + gap  # the chip's spot, left of the door
+            cx = 0.5 * side  # chip centre, in the door window
+            x = min(max(fp.x() - cx, g.left()), g.right() - (pad + w))
+            y = min(max(fp.y() - 0.42 * side - h / 2, g.top()), g.bottom() - h)
+            self.chip_home = (fp.x(), fp.y())
+            self.chip.put(x + cx, y + h / 2 + 0.42 * side)  # halfway up the door's left side
+            self.chip.glitch_until = time.monotonic() + 0.2
+            D.open(x, y, pad, link=(cx + 0.3 * side, pad + INSIDE.left() * D.sx + 4, h / 2), on_closed=self._menu_closed)
+            self.chip.raise_()
+        else:
+            cx, cy = self.center()
+            g = ledges.work_area(QGuiApplication.screenAt(QPointF(cx, cy).toPoint()) or QGuiApplication.primaryScreen())
+            reach = 0.3 * self.S
+            x = cx + reach
+            if x + w > g.right():  # no room on her right: open on her left
+                x = cx - reach - w
+            x = min(max(x, g.left()), g.right() - w)
+            y = min(max(cy - h / 2, g.top()), g.bottom() - h)
+            D.open(x, y, on_closed=self._menu_closed)
+
+    def _menu_closed(self):
+        self.next_roam = max(self.next_roam, self.now + 8)
+        if self.chip_home and self.mode == "chip":  # back where it was
+            self.chip.glitch_until = time.monotonic() + 0.2
+            self.chip.put(*self.chip_home)
+        self.chip_home = None
 
     # -- quitting: a goodbye line, then she switches off like an old CRT --------------------
     def bye(self, then):
@@ -1296,25 +1362,25 @@ class Capri:
             "QMenu { background: rgb(14,6,22); color: rgb(246,240,250); border: 1px solid rgb(255,20,96); padding: 4px; }"
             "QMenu::item { padding: 5px 18px; } QMenu::item:selected { background: rgb(255,20,96); color: black; }"
             "QMenu::separator { height: 1px; background: rgb(60,30,70); margin: 4px 8px; }")
-        m.addAction("Jack in  (talk to her)", self.click)
-        self.nap_action = m.addAction("Go dormant  (nap)", self.toggle_nap)
+        m.addAction("Talk to her", self.click)
+        self.nap_action = m.addAction("Go mini", self.toggle_mini)
         m.addSeparator()
         roam = QAction("Roam the grid", m, checkable=True, checked=True)
         roam.toggled.connect(lambda on: setattr(self, "roaming", on))
         m.addAction(roam)
         self.roam_action = roam
         m.addSeparator()
-        m.addAction("Delta  (quit)", lambda: self.bye(self.quit_fn))
-        m.aboutToShow.connect(lambda: self.nap_action.setText("Wake up" if self.mode == "chip" else "Go dormant  (nap)"))
+        m.addAction("Quit", lambda: self.bye(self.quit_fn))
+        m.aboutToShow.connect(lambda: self.nap_action.setText("Back to full size" if self.mode == "chip" else "Go mini"))
 
     def _build_tray(self):
         from ..config import ASSETS
 
         icon = QIcon(str(ASSETS / "icons" / "tray.png"))
         self.tray = QSystemTrayIcon(icon)
-        self.tray.setToolTip("Capri  //  click: nap / wake")
+        self.tray.setToolTip("Capri  //  click: go mini / back to full size")
         self.tray.setContextMenu(self.menu)
-        self.tray.activated.connect(lambda r: self.toggle_nap() if r == QSystemTrayIcon.Trigger else None)
+        self.tray.activated.connect(lambda r: self.toggle_mini() if r == QSystemTrayIcon.Trigger else None)
         self.tray.show()
 
     def _topmost(self):

@@ -4,11 +4,9 @@ CAPRI // DEV BUILD
 Unzip anywhere, run Capri.exe. Windows 10/11, a GPU with 4-8 GB of VRAM recommended.
 
 First run
-  A setup window asks what to download, shows the total size, then starts her:
-  - Brain: Mistral-Nemo 12B, Conversational 7B and/or CapriAI2 (Qwen3.5 4B). Pick one or more.
-  - Ears: whisper model for speech to text (tiny / base / small / medium), or none (type only).
-  - Brain engine: Vulkan (any GPU, small) or CUDA (NVIDIA, bigger, a bit faster).
-  Downloads resume if your connection drops or you pause. Everything stays inside this folder.
+  She starts right away. Right-click her > Brain > "Get ..." downloads a brain (and its engine);
+  Ears and "Her voice" download theirs the same way. Downloads resume if your connection drops.
+  Everything stays inside this folder.
 
 Talking to her
   Click her to type. Hold Ctrl+1 to talk (change it in right-click > Ears).
@@ -18,7 +16,6 @@ Testing your own model
   Drop any .gguf into models\llm, then right-click her > Brain and pick it. It swaps live.
   Anything llama.cpp release b11932 can run works (Qwen3.5, Llama, Mistral, Gemma...).
   Thinking is switched off; the chat template comes from the GGUF.
-  Right-click > Brain > "Download more models / ears..." opens the setup window again.
 
 Files
   models\llm\      brains (.gguf)          engines\    llama.cpp + whisper.cpp

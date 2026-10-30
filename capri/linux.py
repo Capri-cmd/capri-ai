@@ -215,27 +215,83 @@ def titles() -> list[str]:
 
 
 # -- eyes: screenshot + tesseract ------------------------------------------------------------------------
-def grab_active():
-    """PIL image of the window you're in: Spectacle on KDE Wayland (X11 can't see Wayland windows), else X11."""
-    from PIL import Image, ImageGrab
+_warned: set[str] = set()
 
-    if WAYLAND and shutil.which("spectacle"):
-        fd, path = tempfile.mkstemp(suffix=".png")
-        os.close(fd)
-        try:
-            subprocess.run(["spectacle", "-b", "-n", "-a", "-o", path], timeout=10, capture_output=True)
-            return Image.open(path).copy() if os.path.getsize(path) else None
-        finally:
-            os.unlink(path)
-    box = active_box()
-    if not box:
+
+def _hint(key: str, text: str) -> None:
+    if key not in _warned:
+        _warned.add(key)
+        print(f"[capri] eyes: {text}")
+
+
+def _tool_shot(active: bool, box=None):
+    """A screenshot through a desktop's own tool (Wayland won't let X11 apps see other windows):
+    grim (Hyprland, Sway and other wlroots desktops), Spectacle (KDE), gnome-screenshot (GNOME)."""
+    from PIL import Image
+
+    fd, path = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    tries = []
+    if shutil.which("grim"):
+        geo = f"{box[0]},{box[1]} {box[2] - box[0]}x{box[3] - box[1]}" if box else None
+        tries.append(["grim", "-g", geo, path] if geo else ["grim", path])
+    if shutil.which("spectacle"):
+        tries.append(["spectacle", "-b", "-n", "-a" if active else "-f", "-o", path])
+    if shutil.which("gnome-screenshot"):
+        tries.append(["gnome-screenshot", "-w", "-f", path] if active else ["gnome-screenshot", "-f", path])
+    try:
+        for cmd in tries:
+            try:
+                subprocess.run(cmd, timeout=10, capture_output=True)
+                if os.path.getsize(path):
+                    return Image.open(path).copy()
+            except Exception:
+                continue
+        if not tries:
+            _hint("tool", "on Wayland she needs a screenshot tool to see: grim (Hyprland / Sway), spectacle (KDE) "
+                          "or gnome-screenshot (GNOME)")
         return None
-    return ImageGrab.grab(bbox=box, xdisplay=None)
+    finally:
+        os.unlink(path)
+
+
+def _x11_shot(box=None):
+    from PIL import ImageGrab
+
+    try:
+        img = ImageGrab.grab(bbox=box, xdisplay=None)
+    except Exception as e:
+        _hint("x11", f"X11 screenshot failed: {e}")
+        return None
+    if img.getbbox() is None:  # all black: XWayland can't see native Wayland windows
+        return None
+    return img
+
+
+def grab_active():
+    """PIL image of the window you're in (None if it can't be had)."""
+    box = active_box()
+    if WAYLAND:
+        img = _tool_shot(True, box)
+        if img is not None:
+            return img
+    return _x11_shot(box) if box else None
+
+
+def grab_screen():
+    """PIL image of the whole screen (None if it can't be had)."""
+    if WAYLAND:
+        img = _tool_shot(False)
+        if img is not None:
+            return img
+    return _x11_shot()
 
 
 def ocr(img) -> list[str]:
     """Lines of text in an image, via the tesseract command (sudo pacman -S tesseract tesseract-data-eng)."""
     if not shutil.which("tesseract"):
+        _hint("ocr", "reading text needs tesseract (Arch: sudo pacman -S tesseract tesseract-data-eng, "
+                     "Kali / Debian: sudo apt install tesseract-ocr)")
         return []
     fd, path = tempfile.mkstemp(suffix=".png")
     os.close(fd)

@@ -22,7 +22,7 @@ ASSETS = (Path(getattr(sys, "_MEIPASS", _SRC)) if FROZEN else _SRC) / "assets"
 DATA = ROOT / "data"
 
 DEFAULTS: dict = {
-    # "full": everything (streams, DJ, ERU AI). "dev": the portable test build for other devs: no stream mode, no DJ,
+    # "full": everything (DJ, ERU AI). "dev": the portable test build for other devs: no DJ,
     # models + engines in its own folder (portable.py)
     "edition": "full",
     "eru_ai_root": r"D:\ERU AI",

@@ -71,7 +71,8 @@
 
 - She drops in through a little signal-lock screen in the top-right corner and says hi.
 - **Click her** to type to her. **Hold `Ctrl+1`** to talk (change the key: right-click her → *Ears*).
-- **Right-click her** for everything else: her brain (swap models live), ears, voice on/off, size, nap, roam, quit.
+- **Right-click her** and a door opens beside her with her menu inside: her brain (swap models live, or download a
+  new one right there), ears, voice on/off, size, *Go mini*, roam, quit.
 - **Drag her** around. Drop her near the left, right or top edge and she peeks out from it. Throw her and she falls.
 - Her voice takes a minute or two to warm up the first time she starts. Until then she types without talking.
 
@@ -118,20 +119,22 @@ No graphics card? Untick the brain: she still roams, peeks, plays and answers wi
 **Bring your own model:** any `.gguf` that llama.cpp runs works. Put it in her `models\llm` folder, then right-click
 her → *Brain* and pick it. It swaps live.
 
-## Linux (Arch / CachyOS)
+## Linux
 
 ```bash
-git clone https://github.com/Capri-cmd/capri-ai.git
-cd capri-ai
-bash run.sh
+git clone https://github.com/Capri-cmd/Capri-AI.git
+cd Capri-AI
+bash arch/run.sh     # Arch / CachyOS
+bash kali/run.sh     # Kali / Debian / Ubuntu
 ```
 
-`run.sh` offers to `sudo pacman -S` what she needs (python, portaudio, xcb-util-cursor, vulkan-icd-loader, and
-whisper-cpp / tesseract / playerctl for her ears, eyes and music), makes its own Python environment, then asks you in
-the terminal what she gets (brain, engine, ears, voice, eyes: y/n) and downloads it. `bash run.sh --setup` asks again.
-Her voice model comes from the release (see below).
+The first run offers to install what she needs with your package manager (python, portaudio, xcb-util-cursor,
+vulkan, and tesseract / playerctl for her eyes and music; whisper-cpp and grim on Arch), makes its own Python
+environment, then starts her. Her brain, ears and voice download from her right-click menu (*Brain* → *Get ...*).
+`--setup` picks everything in the terminal instead. On Kali her ears use faster-whisper (no whisper.cpp package there).
 
-On Wayland she runs through XWayland. The hold-to-talk key reads the keyboard from `/dev/input`, which needs
+On Wayland she runs through XWayland and sees your screen with grim (Hyprland / Sway), Spectacle (KDE) or
+gnome-screenshot (GNOME). The hold-to-talk key reads the keyboard from `/dev/input`, which needs
 `sudo usermod -aG input $USER` (then log out and back in).
 
 ## Troubleshooting
@@ -147,8 +150,8 @@ On Wayland she runs through XWayland. The hold-to-talk key reads the keyboard fr
 
 ## For developers
 
-**Run from source (Windows):** `start.bat`. The first run makes a `.venv` (Python 3.10-3.13, no torch), installs
-`portable\requirements.txt`, then asks in the terminal what to download. Her voice model
+**Run from source (Windows):** `windows\start.bat`. The first run makes a `.venv` (Python 3.10-3.13, no torch),
+installs `portable\requirements.txt`, then starts her; downloads are in her right-click menu. Her voice model
 (`models\voice\capri-clone`, 237 MB) is too big for git: download `capri-clone.zip` from the release and unzip it into
 `models\voice\`.
 
@@ -165,12 +168,13 @@ capri/              her code
   brain/            chat, personality, intent detection, the llama.cpp backend
   voice/            voices (GPT-SoVITS / Kokoro), ears, slang pronunciations (words.py)
   abilities/        jobs: apps, browser, music, weather, reminders, notes, screen
-  portable.py       what setup downloads, and the downloader
-  setup.py          setup window      setup_cli.py   terminal setup (y/n)
-capri_dev.py        entry point       start.bat / run.sh   run from source
+  portable.py       what she can download (brains, ears, engines, voice), and the downloader
+  setup_cli.py      terminal setup (y/n), for --setup
+capri_dev.py        entry point
+windows/  arch/  kali/   start.bat / run.sh: run from source on each system
 portable/           default config, requirements
-tools/              build_release.py (installer), make_dev_test.py (source build), installer/ (wizard, art, music)
-assets/             sprites, font, icons, her recorded hellos
+tools/              build_release.py (installer), make_door_sfx.py (menu door sounds), installer/ (wizard, art, music)
+assets/             sprites, the menu's door art, font, icons, her recorded hellos
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) to help out.
@@ -179,6 +183,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) to help out.
 
 - **Her sprites and recorded hellos:** [Lachy](https://github.com/lachydotmcg), PolyForm Noncommercial 1.0.0
   (see `assets/desk/LICENSE.md`).
+- **Her menu's door art** (the portal that opens, its glitch loop): **xilia_world00** on Discord, drawn for Capri
+  (`assets/desk/door`).
 - **Brain models:** [CapriAI2](https://huggingface.co/Ghasty3/CapriAI2) and the Nemotron Heretic build were trained
   by [Ghasty](https://github.com/ghasty3).
 - **Brain:** [llama.cpp](https://github.com/ggml-org/llama.cpp) (MIT) · **Ears:**

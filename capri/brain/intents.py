@@ -13,7 +13,7 @@ POLITE = r"(?:(?:can|could|would|will) (?:you|u|ya)\s+|please\s+|pls\s+|go\s+(?:
 @dataclass
 class Intent:
     kind: str  # play | youtube | pick (her choice of music) | spotify | open | search | read | note | email | tool
-    #            | remember | idea | idle | time | news | reminder | privacy | focus | weather | clip | todo | pc
+    #            | remember | idle | time | news | reminder | privacy | focus | weather | clip | todo | pc
     arg: str = ""
 
 
@@ -78,10 +78,6 @@ _BYE = re.compile(
     r"(?:\s+(?:now|then|for now|capri|buddy|choom|later))*\W*$",
     re.I,
 )
-# "note this idea: ...", "add to the ideas board: ...", "idea for you: ...": onto the stream's ideas board
-_IDEA = re.compile(r"\b(?:(?:note|write|put|save|add|jot)(?: down)? (?:this|that|an?|the|my|new)? ?idea|"
-                   r"(?:add|put|write) (?:(?:this|that|it)\s+)?(?:to|on|in) (?:the |my |your )?ideas?(?: board| list| notepad)?|"
-                   r"new idea|idea for (?:you|the board))\s*(?:for (?:you|the board))?[:,\s-]+(?:that\s+)?(.{4,})", re.I)
 _REMEMBER = re.compile(r"\b(?:remember|don'?t forget|keep in mind|note)\s+(?:that\s+)?(.+)", re.I)
 _SEARCH = re.compile(WAKE + POLITE + r"(?:search(?: up| for| the (?:web|net|internet) for| online for)?|google|"
                      r"look up|look into|find out(?: about)?|check (?:online|the net|the web)(?: for)?)\s+(?P<q>.{3,}?)"
@@ -149,8 +145,6 @@ def detect(text: str) -> Intent | None:
         return Intent("time")
     if m := _NEWS.search(t):
         return Intent("news", _TAIL.sub("", m.group("topic") or "").strip(" .!?,\"'"))
-    if m := _IDEA.search(t):
-        return Intent("idea", m.group(1).strip(" .!?\"'"))
     if m := _REMEMBER.search(t):
         return Intent("remember", m.group(1).strip(" .!?"))
     for action, rx in _CTRL:  # pause / skip / next first: "skip this song" is clear, not vague
