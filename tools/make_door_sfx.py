@@ -1,4 +1,4 @@
-"""Builds the door sounds as WAVs: door_open (intro), door_idle (seamless loop) and door_close (outro). Synthesized
+"""Builds the sounds of the door her right-click menu opens in, as WAVs: door_open and door_close. Synthesized
 in code like capri/desk/sfx.py, but aimed at cinematic sci-fi rather than retro: layered noise and detuned synths,
 sub-bass impacts, glitch stutters, stereo width and a long reverb tail.
 
@@ -6,7 +6,7 @@ Timings follow the intro frames at 12 fps: 0-0.5 s a spark becomes a line, 0.5-0
 ~0.85 s the door slams to full height and glitches, then settles. The close is the same story backwards, so it
 glitches first and snaps shut at ~1.45 s.
 
-    python tools/make_door_sfx.py [out_dir]     (default assets/desk/door/sfx)
+    python tools/make_door_sfx.py [out_dir]     (default assets/desk/door/sfx; needs scipy)
 """
 from __future__ import annotations
 
@@ -224,80 +224,9 @@ def door_close():
     return finish(reverb(buf, 2.2, 0.3))
 
 
-def door_idle(sec=6.0):
-    """Seamless loop: every periodic part repeats a whole number of times in `sec`, and the reverb wraps around."""
-    n = round(sec * SR)
-    tt = np.arange(n) / SR
-    per = lambda f: round(f * sec) / sec  # snap to a frequency that loops exactly
-    hum = np.zeros(n)
-    for f, a in ((55, 1.0), (110, 0.45), (165, 0.2), (220, 0.06), (330, 0.05)):
-        hum += a * np.sin(2 * np.pi * per(f) * tt + RNG.uniform(0, 6.28))
-    beat = 1 + 0.15 * np.sin(2 * np.pi * per(0.5) * tt)  # slow breathing
-    hum *= beat
-    buzz = hp(np.sign(np.sin(2 * np.pi * per(110) * tt)) * 0.02, 1800, 2)  # faint electrical buzz
-    air = np.tile(RNG.standard_normal(n), 2)
-    air = bp(air, 900, 5000, 2)[n:]  # filtered twice-length then take the steady second half: loops cleanly
-    air *= 0.12 * (1 + 0.5 * np.sin(2 * np.pi * per(1 / 3) * tt))
-    body = np.stack([hum + buzz + air, hum + buzz + np.roll(air, 211)], 1) * 0.5
-    # glitch flickers, a few per loop, matching the idle frames' glitching
-    for s in (0.6, 1.9, 2.4, 3.8, 5.1):
-        L = int(RNG.uniform(0.04, 0.12) * SR)
-        g = np.round(RNG.standard_normal(L) * 3) / 3
-        g = bp(g, 1500, 9000, 2) * env(L / SR, 0.002, L / SR * 0.6, 2)
-        p = RNG.uniform(-0.8, 0.8)
-        i = int(s * SR)
-        body[i:i + L, 0] += 0.25 * g * np.sqrt((1 - p) / 2)
-        body[i:i + L, 1] += 0.25 * g * np.sqrt((1 + p) / 2)
-    body += 0.3 * crackle(sec, 12, 6000)
-    # circular reverb: convolve, fold the tail back onto the start
-    wet = reverb(body, 1.6, 1.0)
-    tail = wet[n:]
-    wet = wet[:n].copy()
-    wet[:len(tail)] += tail
-    x = body * 0.75 + wet * 0.25
-    x = x - x.mean(0)
-    return (x / np.abs(x).max() * 0.6).astype(np.float32)
-
-
-def menu_open():
-    """The quick portal behind her right-click menu (intro at 30 fps): zap, rising swish, soft slam at ~0.35 s."""
-    L = 1.6
-    buf = np.zeros((round(L * SR), 2))
-    zap = osc(glide(4200, 1200, 0.08), 0.08) * env(0.08, 0.001, 0.07, 3)
-    at(buf, 0.0, stereo(zap), 0.25)
-    at(buf, 0.0, crackle(0.3, 70), 0.4)
-    at(buf, 0.02, stereo(sweep_filter_noise(0.33, 600, 6000) * env(0.33, 0.25, 0.08), 0.004), 0.5)
-    rise = supersaw(glide(150, 300, 0.36), 0.36) * env(0.36, 0.25, 0.1)[:, None]
-    at(buf, 0.0, np.stack([lp(rise[:, c], 2500) for c in range(2)], 1), 0.3)
-    at(buf, 0.35, stereo(sub_drop(0.5, 120, 50)), 0.45)
-    chord = sum(osc(f, 0.9) * env(0.9, 0.003, 0.85, 3) for f in (440, 659.3, 987.8)) / 3
-    at(buf, 0.35, stereo(chord, 0.008), 0.25)
-    pre = np.stack([bp(buf[round(0.2 * SR):round(0.4 * SR), c], 400, 9000) for c in range(2)], 1)
-    at(buf, 0.37, stutter(pre, 5, (12, 30)), 0.35)
-    return finish(reverb(buf, 1.2, 0.22), 0.7)
-
-
-def menu_close():
-    """Closing it again (reversed intro at 36 fps): glitch, falling swish, snap shut at ~0.58 s."""
-    L = 1.4
-    buf = np.zeros((round(L * SR), 2))
-    buzz = supersaw(220, 0.25) * env(0.25, 0.005, 0.1)[:, None]
-    buzz = np.stack([bp(buzz[:, c], 500, 6000) for c in range(2)], 1)
-    at(buf, 0.0, stutter(buzz, 6, (12, 30)), 0.4)
-    at(buf, 0.0, crackle(0.4, 80, 4000), 0.35)
-    at(buf, 0.15, stereo(sweep_filter_noise(0.42, 5000, 400) * env(0.42, 0.05, 0.35), 0.004), 0.45)
-    snap = 0.58
-    click = hp(RNG.standard_normal(round(0.025 * SR)), 2000) * env(0.025, 0.0005, 0.024, 4)
-    at(buf, snap, stereo(click), 0.6)
-    at(buf, snap, stereo(sub_drop(0.35, 90, 40)), 0.35)
-    at(buf, snap, stereo(osc(glide(400, 60, 0.4), 0.4) * env(0.4, 0.003, 0.39, 2)), 0.15)
-    return finish(reverb(buf, 1.0, 0.22), 0.7)
-
-
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
-    for name, fn in (("door_open", door_open), ("door_idle", door_idle), ("door_close", door_close),
-                     ("menu_open", menu_open), ("menu_close", menu_close)):
+    for name, fn in (("door_open", door_open), ("door_close", door_close)):
         x = fn()
         sf.write(OUT / f"{name}.wav", x, SR, subtype="PCM_16")
         print(f"{name}.wav  {len(x) / SR:.2f}s")
